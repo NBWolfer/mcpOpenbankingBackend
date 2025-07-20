@@ -1,19 +1,27 @@
 # API Reference - MCP Banking Backend
 
-## Authentication Required
+## Authentication Methods
 
-All endpoints except `/health`, `/register`, and `/token` require a valid JWT token in the Authorization header:
+This API supports **dual authentication** for maximum flexibility:
 
+### 1. Bearer Token (API Clients)
 ```
 Authorization: Bearer <your_jwt_token>
 ```
+
+### 2. HTTP-Only Cookies (Web Browsers)
+- Automatically set on login via `/login` or `/token` endpoints
+- More secure for web applications (prevents XSS attacks)
+- Automatically sent by browsers on subsequent requests
+
+**Note:** All endpoints except `/health`, `/register`, `/token`, and `/login` require authentication.
 
 ## Endpoints
 
 ### Authentication
 
 #### POST /register
-Register a new user account.
+Register a new user account and automatically sync with dummy bank.
 
 **Request Body:**
 ```json
@@ -21,7 +29,7 @@ Register a new user account.
   "username": "string",
   "email": "string", 
   "password": "string",
-  "full_name": "string" (optional)
+  "full_name": "string"
 }
 ```
 
@@ -32,13 +40,14 @@ Register a new user account.
   "username": "string",
   "email": "string",
   "full_name": "string",
+  "customer_oid": "550e8400-e29b-41d4-a716-446655440001",
   "is_active": true,
   "created_at": "2025-07-20T10:30:00"
 }
 ```
 
 #### POST /token
-Login and get access token.
+Login with form data and get access token + HTTP-only cookie.
 
 **Request Body (form-data):**
 ```
@@ -51,6 +60,37 @@ password=your_password
 {
   "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
   "token_type": "bearer"
+}
+```
+**Note:** Also sets HTTP-only cookie named `access_token`
+
+#### POST /login
+Login with JSON credentials and get access token + HTTP-only cookie.
+
+**Request Body:**
+```json
+{
+  "username": "string",
+  "password": "string"
+}
+```
+
+**Response:**
+```json
+{
+  "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+  "token_type": "bearer"
+}
+```
+**Note:** Also sets HTTP-only cookie named `access_token`
+
+#### POST /logout
+Logout and clear HTTP-only cookie.
+
+**Response:**
+```json
+{
+  "message": "Successfully logged out"
 }
 ```
 
@@ -66,6 +106,7 @@ Get current user information.
   "username": "john_doe",
   "email": "john@example.com",
   "full_name": "John Doe",
+  "customer_oid": "550e8400-e29b-41d4-a716-446655440001",
   "is_active": true,
   "created_at": "2025-07-20T10:30:00"
 }
@@ -180,6 +221,106 @@ Transfer money between accounts.
 }
 ```
 
+### Dummy Bank Integration
+
+#### GET /bank/portfolio
+Get user's portfolio from dummy bank.
+
+**Response:**
+```json
+{
+  "assets": [
+    {
+      "asset_type": "stock",
+      "symbol": "AAPL",
+      "amount": 100
+    }
+  ],
+  "bank_accounts": [
+    {
+      "institution_id": 1,
+      "balance": 50000.0,
+      "currency": "USD",
+      "iban": "US1234567890123456"
+    }
+  ],
+  "transactions": [...],
+  "spending": [...],
+  "derivatives": [...]
+}
+```
+
+#### GET /bank/status
+Check dummy bank connection status.
+
+**Response:**
+```json
+{
+  "status": "connected",
+  "url": "http://localhost:3000",
+  "timestamp": "2025-07-20T10:30:00"
+}
+```
+
+#### GET /bank/customers
+Get all customers from dummy bank (admin endpoint).
+
+**Response:**
+```json
+{
+  "customers": [
+    {
+      "customer_oid": "550e8400-e29b-41d4-a716-446655440001",
+      "name": "John Doe"
+    }
+  ]
+}
+```
+
+#### POST /bank/sync
+Sync current user with dummy bank.
+
+**Response:**
+```json
+{
+  "message": "Successfully synced with dummy bank",
+  "customer_oid": "550e8400-e29b-41d4-a716-446655440001"
+}
+```
+
+### MCP Integration
+
+#### GET /mcp/status
+Get MCP server status.
+
+**Response:**
+```json
+{
+  "status": "connected",
+  "url": "http://localhost:8001",
+  "timestamp": "2025-07-20T10:30:00"
+}
+```
+
+#### POST /mcp/query
+Query MCP agent with natural language.
+
+**Request Body:**
+```json
+{
+  "query": "What is my account balance?"
+}
+```
+
+**Response:**
+```json
+{
+  "response": "Your checking account balance is $5,000.00",
+  "timestamp": "2025-07-20T10:30:00",
+  "status": "success"
+}
+```
+
 ### System
 
 #### GET /health
@@ -191,7 +332,16 @@ Health check endpoint (no authentication required).
   "status": "healthy",
   "service": "mcp-banking-backend",
   "timestamp": "2025-07-20T10:30:00",
-  "database": "connected"
+  "database": "connected",
+  "mcp_server": {
+    "status": "connected",
+    "url": "http://localhost:8001"
+  },
+  "dummy_bank": {
+    "status": "connected", 
+    "url": "http://localhost:3000"
+  }
+}
 }
 ```
 
@@ -226,6 +376,7 @@ Get all users (admin endpoint).
     "username": "john_doe",
     "email": "john@example.com",
     "full_name": "John Doe",
+    "customer_oid": "550e8400-e29b-41d4-a716-446655440001",
     "is_active": true,
     "created_at": "2025-07-20T10:30:00"
   }
@@ -258,3 +409,29 @@ The backend automatically calls MCP agents for:
 - User authentication events
 
 MCP calls are made asynchronously and don't block the API response.
+
+## Dummy Bank Integration
+
+The system integrates with a dummy bank API for:
+- Customer registration with CustomerOID linking
+- Portfolio data retrieval (assets, accounts, transactions)
+- Account synchronization
+- Connection health monitoring
+
+## Authentication Notes
+
+### Cookie Security
+- HTTP-only cookies prevent XSS attacks
+- SameSite=lax prevents CSRF attacks
+- Secure flag should be enabled for HTTPS in production
+
+### Token Management
+- Bearer tokens expire in 30 minutes (configurable)
+- Cookies have the same expiration as tokens
+- Both authentication methods can be used simultaneously
+
+### Flexible Authentication
+The API automatically detects authentication method:
+1. Checks for `Authorization: Bearer` header first
+2. Falls back to HTTP-only cookie if no Bearer token
+3. Returns 401 if neither method provides valid credentials
